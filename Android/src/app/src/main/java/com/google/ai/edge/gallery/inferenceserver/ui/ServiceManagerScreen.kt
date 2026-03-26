@@ -5,7 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,11 +32,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.ai.edge.gallery.GalleryTopAppBar
@@ -59,6 +64,7 @@ fun ServiceManagerScreen(
   val runtime by viewModel.httpInferenceRuntime.status.collectAsState()
   val models by viewModel.downloadedLlmModels.collectAsState()
   val log by viewModel.connectionLog.collectAsState()
+  val llmDebugText by viewModel.llmDebugLog.collectAsState()
 
   var portText by remember(config.port) { mutableStateOf(config.port.toString()) }
   var newIp by remember { mutableStateOf("") }
@@ -212,6 +218,55 @@ fun ServiceManagerScreen(
                 }
               }
             }
+          }
+        }
+
+        item(key = "llm_debug_log") {
+          val debugScrollState = rememberScrollState()
+          LaunchedEffect(debugScrollState) {
+            snapshotFlow { llmDebugText }
+              .collect {
+                delay(16)
+                debugScrollState.scrollTo(debugScrollState.maxValue)
+              }
+          }
+          HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Text(
+              stringResource(R.string.http_inference_llm_debug_log),
+              style = MaterialTheme.typography.labelLarge,
+            )
+            TextButton(onClick = viewModel::clearLlmDebugLog) {
+              Text(stringResource(R.string.http_inference_llm_debug_clear))
+            }
+          }
+          Text(
+            stringResource(R.string.http_inference_llm_debug_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+          )
+          SelectionContainer(
+            modifier =
+              Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .heightIn(max = 240.dp)
+                .verticalScroll(debugScrollState),
+          ) {
+            Text(
+              text =
+                if (llmDebugText.isEmpty()) {
+                  stringResource(R.string.http_inference_llm_debug_empty)
+                } else {
+                  llmDebugText
+                },
+              style = MaterialTheme.typography.bodySmall,
+              fontFamily = FontFamily.Monospace,
+            )
           }
         }
       }

@@ -39,6 +39,7 @@ class InferenceService : Service() {
   @Inject lateinit var dataStoreRepository: DataStoreRepository
   @Inject lateinit var inferenceModelRegistry: InferenceModelRegistry
   @Inject lateinit var httpInferenceRuntime: HttpInferenceRuntime
+  @Inject lateinit var httpInferenceLlmDebugLog: HttpInferenceLlmDebugLog
 
   private val inferenceMutex = Mutex()
   private val job = SupervisorJob()
@@ -244,6 +245,7 @@ class InferenceService : Service() {
           boundModelName = model.name,
           ensureLlmLoaded = { ensureLlmLoadedUnderMutex() },
           onInferenceActivity = { touchInferenceActivity() },
+          llmDebugLog = httpInferenceLlmDebugLog,
         )
       }
     embedded.start(wait = false)
@@ -341,6 +343,7 @@ class InferenceService : Service() {
     boundModel?.let { m -> LlmChatModelHelper.cleanUp(m) {} }
     boundModel = null
     server = null
+    httpInferenceLlmDebugLog.clear()
     httpInferenceRuntime.setStopped()
     synchronized(this) { startRequested = false }
     super.onDestroy()

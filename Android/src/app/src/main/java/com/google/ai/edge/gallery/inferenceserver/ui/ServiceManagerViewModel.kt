@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 import com.google.ai.edge.gallery.data.DataStoreRepository
 import com.google.ai.edge.gallery.inferenceserver.HttpInferenceAccelerator
+import com.google.ai.edge.gallery.inferenceserver.HttpInferenceLlmDebugLog
 import com.google.ai.edge.gallery.inferenceserver.HttpInferenceRuntime
 import com.google.ai.edge.gallery.inferenceserver.InferenceModelRegistry
 import com.google.ai.edge.gallery.inferenceserver.InferenceService
@@ -25,8 +26,15 @@ constructor(
   private val dataStoreRepository: DataStoreRepository,
   private val inferenceModelRegistry: InferenceModelRegistry,
   val httpInferenceRuntime: HttpInferenceRuntime,
+  private val httpInferenceLlmDebugLog: HttpInferenceLlmDebugLog,
   @ApplicationContext private val context: Context,
 ) : ViewModel() {
+
+  val llmDebugLog = httpInferenceLlmDebugLog.text
+
+  fun clearLlmDebugLog() {
+    httpInferenceLlmDebugLog.clear()
+  }
 
   private val _config = MutableStateFlow(dataStoreRepository.readServiceConfig())
   val serviceConfig: StateFlow<ServiceConfig> = _config.asStateFlow()

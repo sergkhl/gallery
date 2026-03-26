@@ -348,6 +348,10 @@
   <string name="http_inference_whitelist" translatable="false">Client whitelist</string>
   <string name="http_inference_add_client" translatable="false">Add IP</string>
   <string name="http_inference_connection_log" translatable="false">Connection log</string>
+  <string name="http_inference_llm_debug_log" translatable="false">LLM output (debug)</string>
+  <string name="http_inference_llm_debug_hint" translatable="false">Assistant tokens from /v1/chat/completions while the service runs. Keeps the last 10,000 characters. Cleared when the service stops.</string>
+  <string name="http_inference_llm_debug_clear" translatable="false">Clear log</string>
+  <string name="http_inference_llm_debug_empty" translatable="false">No output yet. Send a chat completion request to this device.</string>
   <string name="http_inference_blocked_by_service_title" translatable="false">Model in use</string>
   <string name="http_inference_blocked_by_service_body" translatable="false">This model is bound to the HTTP inference service. Stop the service in HTTP inference settings to use it in the app.</string>
   <string name="http_inference_home_shortcut" translatable="false">HTTP inference</string>

@@ -63,6 +63,14 @@ private const val TAG = "AGInferenceHttp"
 /** Max time to wait for LiteRT callbacks to finish after stop before releasing the inference lock. */
 private const val INFERENCE_IDLE_WAIT_MS = 5000L
 
+private sealed interface HttpInferenceStreamEvent {
+  data class Token(val text: String) : HttpInferenceStreamEvent
+
+  data object End : HttpInferenceStreamEvent
+
+  data class Error(val message: String) : HttpInferenceStreamEvent
+}
+
 fun Application.configureInferenceOpenAiRoutes(
   securityGateway: SecurityGateway,
   dataStoreRepository: DataStoreRepository,
@@ -72,6 +80,7 @@ fun Application.configureInferenceOpenAiRoutes(
   boundModelName: String,
   ensureLlmLoaded: suspend () -> Model,
   onInferenceActivity: () -> Unit,
+  llmDebugLog: HttpInferenceLlmDebugLog,
 ) {
   install(ContentNegotiation) { json(openAiJson) }
 
@@ -191,6 +200,7 @@ fun Application.configureInferenceOpenAiRoutes(
           )
           return@post
         }
+        llmDebugLog.markCompletionStart()
         if (req.stream) {
           val streamId = "chatcmpl-${UUID.randomUUID()}"
           val idle = CompletableDeferred<Unit>()
@@ -204,6 +214,7 @@ fun Application.configureInferenceOpenAiRoutes(
               streamId = streamId,
               modelName = boundModel.name,
               inferenceIdle = idle,
+              llmDebugLog = llmDebugLog,
             ) { chunk ->
               write(chunk)
               flush()
@@ -216,6 +227,7 @@ fun Application.configureInferenceOpenAiRoutes(
               model = boundModel,
               prompt = prompt,
               images = images,
+              llmDebugLog = llmDebugLog,
             )
           inferenceIdle = idle
           call.respond(
@@ -263,6 +275,7 @@ private suspend fun writeStreamingChat(
   streamId: String,
   modelName: String,
   inferenceIdle: CompletableDeferred<Unit>,
+  llmDebugLog: HttpInferenceLlmDebugLog,
   emit: suspend (String) -> Unit,
 ) {
   fun markInferenceIdle() {
@@ -271,7 +284,32 @@ private suspend fun writeStreamingChat(
     }
   }
 
-  val channel = Channel<String>(Channel.UNLIMITED)
+  val out = Channel<String>(Channel.UNLIMITED)
+  val mailbox = Channel<HttpInferenceStreamEvent>(Channel.UNLIMITED)
+  serviceScope.launch {
+    try {
+      for (event in mailbox) {
+        when (event) {
+          is HttpInferenceStreamEvent.Token -> {
+            if (event.text.isNotEmpty()) {
+              llmDebugLog.appendDelta(event.text)
+              out.send(event.text)
+            }
+          }
+          is HttpInferenceStreamEvent.Error -> {
+            llmDebugLog.appendError(event.message)
+            out.send("__ERROR__:${event.message}")
+            return@launch
+          }
+          is HttpInferenceStreamEvent.End -> return@launch
+        }
+      }
+    } finally {
+      out.close()
+      markInferenceIdle()
+      mailbox.close()
+    }
+  }
   LlmChatModelHelper.resetConversation(
     model = model,
     supportImage = model.llmSupportImage,
@@ -283,38 +321,28 @@ private suspend fun writeStreamingChat(
   LlmChatModelHelper.runInference(
     model = model,
     input = prompt,
-    resultListener = { partial, done ->
+    resultListener = { partial, done, _ ->
       if (partial.startsWith("<ctrl")) {
         if (done) {
-          serviceScope.launch {
-            channel.close()
-            markInferenceIdle()
-          }
+          mailbox.trySend(HttpInferenceStreamEvent.End)
         }
         return@runInference
       }
-      serviceScope.launch {
-        if (partial.isNotEmpty()) {
-          channel.send(partial)
-        }
-        if (done) {
-          channel.close()
-          markInferenceIdle()
-        }
+      if (partial.isNotEmpty()) {
+        mailbox.trySend(HttpInferenceStreamEvent.Token(partial))
+      }
+      if (done) {
+        mailbox.trySend(HttpInferenceStreamEvent.End)
       }
     },
     cleanUpListener = {},
     onError = { message ->
-      serviceScope.launch {
-        channel.send("__ERROR__:$message")
-        channel.close()
-        markInferenceIdle()
-      }
+      mailbox.trySend(HttpInferenceStreamEvent.Error(message))
     },
     images = images,
     coroutineScope = serviceScope,
   )
-  for (delta in channel) {
+  for (delta in out) {
     if (delta.startsWith("__ERROR__:")) {
       val err = delta.removePrefix("__ERROR__:")
       emit(
@@ -358,6 +386,7 @@ private suspend fun runBlockingChat(
   model: Model,
   prompt: String,
   images: List<Bitmap>,
+  llmDebugLog: HttpInferenceLlmDebugLog,
 ): Pair<String, CompletableDeferred<Unit>> {
   val inferenceIdle = CompletableDeferred<Unit>()
   fun markInferenceIdle() {
@@ -379,7 +408,7 @@ private suspend fun runBlockingChat(
   LlmChatModelHelper.runInference(
     model = model,
     input = prompt,
-    resultListener = { partial, finished ->
+    resultListener = { partial, finished, _ ->
       if (partial.startsWith("<ctrl")) {
         if (finished) {
           serviceScope.launch {
@@ -392,6 +421,7 @@ private suspend fun runBlockingChat(
         return@runInference
       }
       if (partial.isNotEmpty()) {
+        llmDebugLog.appendDelta(partial)
         sb.append(partial)
       }
       if (finished) {
@@ -406,6 +436,7 @@ private suspend fun runBlockingChat(
     cleanUpListener = {},
     onError = { message ->
       serviceScope.launch {
+        llmDebugLog.appendError(message)
         if (!done.isCompleted) {
           done.complete("Error: $message")
         }

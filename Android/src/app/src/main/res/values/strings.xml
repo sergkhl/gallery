@@ -316,4 +316,49 @@
   <!-- Content description spoken when the "menu" icon is focused. [CHAR_LIMIT=NONE] -->
   <string name="cd_menu">Menu</string>
 
+  <string name="inference_notification_channel_name" translatable="false">HTTP inference access</string>
+  <string name="inference_connection_request_title" translatable="false">Inference connection request</string>
+  <string name="inference_connection_request_body" translatable="false">Allow HTTP inference from %s?</string>
+  <string name="inference_allow" translatable="false">Allow</string>
+  <string name="inference_deny" translatable="false">Deny</string>
+  <string name="inference_service_channel_name" translatable="false">HTTP inference service</string>
+  <string name="inference_service_notification_title" translatable="false">HTTP inference</string>
+  <string name="inference_service_starting" translatable="false">Starting server…</string>
+  <string name="inference_service_running_on_port" translatable="false">Running on port %d</string>
+  <string name="inference_service_notification_model_unloaded" translatable="false">Model unloaded from memory (idle)</string>
+  <string name="inference_notification_stop_server" translatable="false">Stop server</string>
+  <string name="inference_notification_tap_for_settings" translatable="false">Tap for HTTP inference settings</string>
+  <string name="drawer_http_inference_label" translatable="false">HTTP inference</string>
+  <string name="http_inference_title" translatable="false">HTTP inference service</string>
+  <string name="http_inference_service_running" translatable="false">Running on port %d</string>
+  <string name="http_inference_service_stopped" translatable="false">Stopped</string>
+  <string name="http_inference_start" translatable="false">Start</string>
+  <string name="http_inference_stop" translatable="false">Stop</string>
+  <string name="http_inference_default_model" translatable="false">Default model</string>
+  <string name="http_inference_llm_accelerator" translatable="false">LLM accelerator</string>
+  <string name="http_inference_accelerator_stop_to_change" translatable="false">Stop the service to change the accelerator.</string>
+  <string name="http_inference_port" translatable="false">Port</string>
+  <string name="http_inference_auto_start" translatable="false">Start on boot</string>
+  <string name="http_inference_auto_start_on_app_open" translatable="false">Start when app opens</string>
+  <string name="http_inference_auto_start_on_app_open_hint" translatable="false">Starts the HTTP server each time you return to this app. Turn off to stay stopped after you tap Stop.</string>
+  <string name="http_inference_idle_unload_minutes" translatable="false">Unload model after idle (minutes)</string>
+  <string name="http_inference_idle_unload_hint" translatable="false">0 = keep loaded. Countdown resets on each authenticated /v1 request while the model is loaded.</string>
+  <string name="http_inference_model_unloaded_hint" translatable="false">Model unloaded from memory (idle). Next chat request will reload it.</string>
+  <string name="http_inference_auth_token" translatable="false">Bearer token (optional)</string>
+  <string name="http_inference_whitelist" translatable="false">Client whitelist</string>
+  <string name="http_inference_add_client" translatable="false">Add IP</string>
+  <string name="http_inference_connection_log" translatable="false">Connection log</string>
+  <string name="http_inference_blocked_by_service_title" translatable="false">Model in use</string>
+  <string name="http_inference_blocked_by_service_body" translatable="false">This model is bound to the HTTP inference service. Stop the service in HTTP inference settings to use it in the app.</string>
+  <string name="http_inference_home_shortcut" translatable="false">HTTP inference</string>
+  <string name="http_inference_drawer_description" translatable="false">LAN OpenAI-compatible API</string>
+  <string name="http_inference_save" translatable="false">Save</string>
+  <string name="http_inference_download_llm_first" translatable="false">Download an LLM model first.</string>
+  <string name="http_inference_ip_hint" translatable="false">IP address</string>
+  <string name="http_inference_token_hint" translatable="false">Leave empty to disable</string>
+  <string name="http_inference_access_urls_label" translatable="false">Access from your network</string>
+  <string name="http_inference_access_urls_hint" translatable="false">OpenAI-compatible API (same Wi‑Fi). Use /v1/models and /v1/chat/completions. Vision: last user message may include image_url parts with data:image/…;base64,… URLs only.</string>
+  <string name="http_inference_no_lan_ip" translatable="false">No LAN IPv4 found. Use this device’s IP from Wi‑Fi settings with port %d.</string>
+  <string name="http_inference_copy_url" translatable="false">Copy URL</string>
+
 </resources>

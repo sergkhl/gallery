@@ -14,19 +14,57 @@
  * limitations under the License.
  */
 
+import java.util.Properties
+import org.gradle.api.GradleException
+
 plugins {
   alias(libs.plugins.android.application)
   // Note: set apply to true to enable google-services (requires google-services.json).
   alias(libs.plugins.google.services) apply false
-  alias(libs.plugins.kotlin.android)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.kotlin.serialization)
   alias(libs.plugins.protobuf)
   alias(libs.plugins.hilt.application)
   alias(libs.plugins.oss.licenses)
   alias(libs.plugins.ksp)
-  kotlin("kapt")
+  alias(libs.plugins.legacy.kapt)
 }
+
+val oauthLocalPropertiesFile = rootProject.file("local.properties")
+val oauthLocalProperties = Properties()
+
+if (!oauthLocalPropertiesFile.exists()) {
+  throw GradleException(
+    "Missing ${oauthLocalPropertiesFile.absolutePath}. Copy local.properties.example to " +
+      "local.properties, set sdk.dir if needed, and add hf.oauth.clientId and hf.oauth.redirectUri. " +
+      "See DEVELOPMENT.md."
+  )
+}
+
+oauthLocalPropertiesFile.inputStream().use { oauthLocalProperties.load(it) }
+
+fun requireOAuthProperty(key: String): String {
+  val value = oauthLocalProperties.getProperty(key)?.trim().orEmpty()
+  if (value.isEmpty()) {
+    throw GradleException(
+      "Missing or blank '$key' in ${oauthLocalPropertiesFile.absolutePath}. " +
+        "See local.properties.example and DEVELOPMENT.md."
+    )
+  }
+  return value
+}
+
+fun String.escapeForBuildConfigString(): String =
+  "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+val hfOAuthClientId = requireOAuthProperty("hf.oauth.clientId")
+val hfOAuthRedirectUri = requireOAuthProperty("hf.oauth.redirectUri")
+val hfOAuthRedirectScheme =
+  hfOAuthRedirectUri.indexOf(':').takeIf { it > 0 }?.let { hfOAuthRedirectUri.substring(0, it) }
+    ?: throw GradleException(
+      "hf.oauth.redirectUri must include a non-empty scheme before ':', e.g. com.example.app:/oauth " +
+        "(file: ${oauthLocalPropertiesFile.absolutePath})"
+    )
 
 android {
   namespace = "com.google.ai.edge.gallery"
@@ -37,12 +75,12 @@ android {
     minSdk = 31
     targetSdk = 35
     versionCode = 20
-    versionName = "1.0.11"
+    versionName = "1.0.10"
 
-    // Needed for HuggingFace auth workflows.
-    // Use the scheme of the "Redirect URLs" in HuggingFace app.
-    manifestPlaceholders["appAuthRedirectScheme"] =
-        "REPLACE_WITH_YOUR_REDIRECT_SCHEME_IN_HUGGINGFACE_APP"
+    // Hugging Face OAuth: hf.oauth.* in root local.properties (see DEVELOPMENT.md).
+    manifestPlaceholders["appAuthRedirectScheme"] = hfOAuthRedirectScheme
+    buildConfigField("String", "HF_OAUTH_CLIENT_ID", hfOAuthClientId.escapeForBuildConfigString())
+    buildConfigField("String", "HF_OAUTH_REDIRECT_URI", hfOAuthRedirectUri.escapeForBuildConfigString())
     manifestPlaceholders["applicationName"] = "com.google.ai.edge.gallery.GalleryApplication"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -59,17 +97,26 @@ android {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
   }
-  kotlinOptions {
-    jvmTarget = "11"
-    freeCompilerArgs += "-Xcontext-receivers"
-  }
   buildFeatures {
     compose = true
     buildConfig = true
   }
 }
 
+kotlin {
+  compilerOptions {
+    freeCompilerArgs.add("-Xcontext-receivers")
+  }
+}
+
 dependencies {
+  implementation(platform(libs.ktor.bom))
+  implementation(libs.ktor.server.cio)
+  implementation(libs.ktor.server.core)
+  implementation(libs.ktor.serialization.kotlinx.json)
+  implementation(libs.ktor.server.content.negotiation)
+  implementation(libs.ktor.server.cors)
+
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.activity.compose)

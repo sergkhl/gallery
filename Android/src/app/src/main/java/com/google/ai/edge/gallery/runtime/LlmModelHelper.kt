@@ -47,6 +47,7 @@ interface LlmModelHelper {
    * @param enableConversationConstrainedDecoding whether to enable constrained decoding for
    *   conversations.
    * @param coroutineScope optional coroutine scope for async execution.
+   * @param textAcceleratorLabel when non-null, overrides the model's text accelerator ([com.google.ai.edge.gallery.data.ConfigKeys.ACCELERATOR]); vision/audio backends are unchanged.
    */
   fun initialize(
     context: Context,
@@ -58,6 +59,7 @@ interface LlmModelHelper {
     tools: List<ToolProvider> = listOf(),
     enableConversationConstrainedDecoding: Boolean = false,
     coroutineScope: CoroutineScope? = null,
+    textAcceleratorLabel: String? = null,
   )
 
   /**

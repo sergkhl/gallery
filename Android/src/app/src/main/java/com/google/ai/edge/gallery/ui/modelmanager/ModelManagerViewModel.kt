@@ -49,6 +49,8 @@ import com.google.ai.edge.gallery.data.TMP_FILE_EXT
 import com.google.ai.edge.gallery.data.Task
 import com.google.ai.edge.gallery.data.ValueType
 import com.google.ai.edge.gallery.data.createLlmChatConfigs
+import com.google.ai.edge.gallery.inferenceserver.HttpInferenceRuntime
+import com.google.ai.edge.gallery.inferenceserver.InferenceModelRegistry
 import com.google.ai.edge.gallery.proto.AccessTokenData
 import com.google.ai.edge.gallery.proto.ImportedModel
 import com.google.ai.edge.gallery.proto.Theme
@@ -182,11 +184,22 @@ constructor(
   val dataStoreRepository: DataStoreRepository,
   private val lifecycleProvider: AppLifecycleProvider,
   private val customTasks: Set<@JvmSuppressWildcards CustomTask>,
+  private val inferenceModelRegistry: InferenceModelRegistry,
+  private val httpInferenceRuntime: HttpInferenceRuntime,
   @ApplicationContext private val context: Context,
 ) : ViewModel() {
   private val externalFilesDir = context.getExternalFilesDir(null)
   protected val _uiState = MutableStateFlow(createEmptyUiState())
   val uiState = _uiState.asStateFlow()
+
+  init {
+    viewModelScope.launch {
+      uiState.collect { inferenceModelRegistry.syncFromUiState(it) }
+    }
+  }
+
+  fun isModelBlockedByHttpService(model: Model): Boolean =
+    httpInferenceRuntime.isBlockingModel(model.name)
 
   val authService = AuthorizationService(context)
   var curAccessToken: String = ""
@@ -341,6 +354,13 @@ constructor(
     onDone: () -> Unit = {},
   ) {
     viewModelScope.launch(Dispatchers.Default) {
+      if (httpInferenceRuntime.isBlockingModel(model.name)) {
+        Log.w(
+          TAG,
+          "Skipping model init: HTTP inference service is bound to '${model.name}'.",
+        )
+        return@launch
+      }
       // Skip if initialized already.
       if (
         !force &&

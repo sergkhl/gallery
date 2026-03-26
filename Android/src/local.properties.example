@@ -1,0 +1,8 @@
+# Copy to local.properties in this directory (Android/src/). Do not commit local.properties.
+# Android Studio usually creates local.properties with sdk.dir when you open the project.
+
+# sdk.dir=/path/to/Android/sdk
+
+# Hugging Face OAuth app (https://huggingface.co/docs/hub/oauth#creating-an-oauth-app)
+hf.oauth.clientId=
+hf.oauth.redirectUri=

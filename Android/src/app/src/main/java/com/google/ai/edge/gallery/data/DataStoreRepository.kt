@@ -21,8 +21,11 @@ import com.google.ai.edge.gallery.proto.AccessTokenData
 import com.google.ai.edge.gallery.proto.BenchmarkResult
 import com.google.ai.edge.gallery.proto.BenchmarkResults
 import com.google.ai.edge.gallery.proto.Cutout
+import com.google.ai.edge.gallery.proto.ConnectionLogEntry
 import com.google.ai.edge.gallery.proto.CutoutCollection
 import com.google.ai.edge.gallery.proto.ImportedModel
+import com.google.ai.edge.gallery.proto.InferenceServerState
+import com.google.ai.edge.gallery.proto.ServiceConfig
 import com.google.ai.edge.gallery.proto.Settings
 import com.google.ai.edge.gallery.proto.Theme
 import com.google.ai.edge.gallery.proto.UserData
@@ -93,14 +96,25 @@ interface DataStoreRepository {
 
   /** Returns whether a promo with the specified ID has been viewed. */
   fun hasViewedPromo(promoId: String): Boolean
+
+  fun readServiceConfig(): ServiceConfig
+
+  fun saveServiceConfig(config: ServiceConfig)
+
+  fun addConnectionLogEntry(entry: ConnectionLogEntry)
+
+  fun readConnectionLog(): List<ConnectionLogEntry>
 }
 
 /** Repository for managing data using Proto DataStore. */
+private const val MAX_INFERENCE_CONNECTION_LOG = 100
+
 class DefaultDataStoreRepository(
   private val dataStore: DataStore<Settings>,
   private val userDataDataStore: DataStore<UserData>,
   private val cutoutDataStore: DataStore<CutoutCollection>,
   private val benchmarkResultsDataStore: DataStore<BenchmarkResults>,
+  private val inferenceServerStateStore: DataStore<InferenceServerState>,
 ) : DataStoreRepository {
   override fun saveTextInputHistory(history: List<String>) {
     runBlocking {
@@ -342,5 +356,44 @@ class DefaultDataStoreRepository(
       val settings = dataStore.data.first()
       settings.viewedPromoIdList.contains(promoId)
     }
+  }
+
+  override fun readServiceConfig(): ServiceConfig {
+    return runBlocking {
+      val state = inferenceServerStateStore.data.first()
+      if (state.hasConfig()) {
+        state.config
+      } else {
+        ServiceConfig.newBuilder()
+          .setPort(8080)
+          .setAutoStart(false)
+          .setAutoStartOnAppOpen(false)
+          .build()
+      }
+    }
+  }
+
+  override fun saveServiceConfig(config: ServiceConfig) {
+    runBlocking {
+      inferenceServerStateStore.updateData { state ->
+        state.toBuilder().setConfig(config).build()
+      }
+    }
+  }
+
+  override fun addConnectionLogEntry(entry: ConnectionLogEntry) {
+    runBlocking {
+      inferenceServerStateStore.updateData { state ->
+        val b = state.toBuilder().addConnectionLog(0, entry)
+        while (b.connectionLogCount > MAX_INFERENCE_CONNECTION_LOG) {
+          b.removeConnectionLog(b.connectionLogCount - 1)
+        }
+        b.build()
+      }
+    }
+  }
+
+  override fun readConnectionLog(): List<ConnectionLogEntry> {
+    return runBlocking { inferenceServerStateStore.data.first().connectionLogList }
   }
 }

@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package com.google.ai.edge.gallery.proto;
+
+option java_multiple_files = true;
+option java_outer_classname = "InferenceServiceProto";
+option java_package = "com.google.ai.edge.gallery.proto";
+
+message WhitelistEntry {
+  string ip = 1;
+  string label = 2;
+  bool enabled = 3;
+  int64 added_ms = 4;
+}
+
+message ServiceConfig {
+  int32 port = 1;
+  bool auto_start = 2;
+  repeated WhitelistEntry whitelist = 3;
+  string default_model_name = 4;
+  // Optional Bearer token; empty means no auth check.
+  string auth_token = 5;
+  // Text LLM backend: "CPU", "GPU", or "NPU" matching Accelerator.label. Empty reads as GPU.
+  string llm_accelerator = 6;
+  bool auto_start_on_app_open = 7;
+  // Unload LLM from memory after this many minutes with no activity; 0 = never unload.
+  int32 idle_unload_minutes = 8;
+}
+
+message ConnectionLogEntry {
+  int64 time_ms = 1;
+  string client_ip = 2;
+  bool allowed = 3;
+  string detail = 4;
+}
+
+message InferenceServerState {
+  ServiceConfig config = 1;
+  repeated ConnectionLogEntry connection_log = 2;
+}

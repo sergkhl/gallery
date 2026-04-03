@@ -67,6 +67,7 @@ object LlmChatModelHelper : LlmModelHelper {
     tools: List<ToolProvider>,
     enableConversationConstrainedDecoding: Boolean,
     coroutineScope: CoroutineScope?,
+    textAcceleratorLabel: String?,
   ) {
     // Prepare options.
     val maxTokens =
@@ -76,7 +77,8 @@ object LlmChatModelHelper : LlmModelHelper {
     val temperature =
       model.getFloatConfigValue(key = ConfigKeys.TEMPERATURE, defaultValue = DEFAULT_TEMPERATURE)
     val accelerator =
-      model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = Accelerator.GPU.label)
+      textAcceleratorLabel?.trim()?.takeIf { it.isNotEmpty() }
+        ?: model.getStringConfigValue(key = ConfigKeys.ACCELERATOR, defaultValue = Accelerator.GPU.label)
     val visionAccelerator =
       model.getStringConfigValue(
         key = ConfigKeys.VISION_ACCELERATOR,
@@ -162,6 +164,11 @@ object LlmChatModelHelper : LlmModelHelper {
       Log.d(TAG, "Resetting conversation for model '${model.name}'")
 
       val instance = model.instance as LlmModelInstance? ?: return
+      try {
+        instance.conversation.cancelProcess()
+      } catch (e: Exception) {
+        Log.d(TAG, "cancelProcess before conversation close failed", e)
+      }
       instance.conversation.close()
 
       val engine = instance.engine

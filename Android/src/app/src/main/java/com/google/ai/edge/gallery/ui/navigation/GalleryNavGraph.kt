@@ -16,6 +16,9 @@
 
 package com.google.ai.edge.gallery.ui.navigation
 
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
+import androidx.hilt.navigation.compose.hiltViewModel
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.compose.BackHandler
@@ -42,7 +45,10 @@ import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -54,13 +60,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -70,6 +76,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.google.ai.edge.gallery.GalleryEvent
+import com.google.ai.edge.gallery.R
+import com.google.ai.edge.gallery.inferenceserver.ui.ServiceManagerScreen
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskData
 import com.google.ai.edge.gallery.customtasks.common.CustomTaskDataForBuiltinTask
 import com.google.ai.edge.gallery.data.ModelDownloadStatusType
@@ -96,6 +104,7 @@ private const val ROUTE_MODEL_LIST = "model_list"
 private const val ROUTE_MODEL = "route_model"
 private const val ROUTE_BENCHMARK = "benchmark"
 private const val ROUTE_MODEL_MANAGER = "model_manager"
+private const val ROUTE_HTTP_INFERENCE = "http_inference"
 private const val ENTER_ANIMATION_DURATION_MS = 500
 private val ENTER_ANIMATION_EASING = EaseOutExpo
 private const val ENTER_ANIMATION_DELAY_MS = 100
@@ -143,6 +152,33 @@ private fun AnimatedContentTransitionScope<*>.slideDownExit(): ExitTransition {
   )
 }
 
+private fun consumeGalleryDeepLink(
+  activity: ComponentActivity,
+  navController: NavHostController,
+  modelManagerViewModel: ModelManagerViewModel,
+) {
+  val data = activity.intent?.data ?: return
+  activity.intent?.data = null
+  Log.d(TAG, "navigation link clicked: $data")
+  if (data.toString().startsWith("com.google.ai.edge.gallery://model/")) {
+    if (data.pathSegments.size >= 2) {
+      val taskId = data.pathSegments.get(data.pathSegments.size - 2)
+      val modelName = data.pathSegments.last()
+      modelManagerViewModel.getModelByName(name = modelName)?.let { model ->
+        if (!modelManagerViewModel.isModelBlockedByHttpService(model)) {
+          navController.navigate("$ROUTE_MODEL/${taskId}/${model.name}")
+        }
+      }
+    } else {
+      Log.e(TAG, "Malformed deep link URI received: $data")
+    }
+  } else if (data.toString() == "com.google.ai.edge.gallery://global_model_manager") {
+    navController.navigate(ROUTE_MODEL_MANAGER)
+  } else if (data.scheme == "com.google.ai.edge.gallery" && data.host == "http_inference") {
+    navController.navigate(ROUTE_HTTP_INFERENCE)
+  }
+}
+
 /** Navigation routes. */
 @Composable
 fun GalleryNavHost(
@@ -156,6 +192,7 @@ fun GalleryNavHost(
   var enableHomeScreenAnimation by remember { mutableStateOf(true) }
   var enableModelListAnimation by remember { mutableStateOf(true) }
   var lastNavigatedModelName = remember { "" }
+  var httpInferenceBlockDialogVisible by remember { mutableStateOf(false) }
 
   // Track whether app is in foreground.
   DisposableEffect(lifecycleOwner) {
@@ -178,6 +215,20 @@ fun GalleryNavHost(
     lifecycleOwner.lifecycle.addObserver(observer)
 
     onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+  }
+
+  val activity = LocalActivity.current as? ComponentActivity
+  DisposableEffect(activity, navController, modelManagerViewModel) {
+    if (activity == null) {
+      return@DisposableEffect onDispose {}
+    }
+    val deepLinkObserver = LifecycleEventObserver { _, event ->
+      if (event == Lifecycle.Event.ON_RESUME) {
+        consumeGalleryDeepLink(activity, navController, modelManagerViewModel)
+      }
+    }
+    activity.lifecycle.addObserver(deepLinkObserver)
+    onDispose { activity.lifecycle.removeObserver(deepLinkObserver) }
   }
 
   NavHost(
@@ -208,6 +259,7 @@ fun GalleryNavHost(
               )
             },
             onModelsClicked = { navController.navigate(ROUTE_MODEL_MANAGER) },
+            onHttpInferenceClicked = { navController.navigate(ROUTE_HTTP_INFERENCE) },
             gm4 = true,
           )
         }
@@ -272,11 +324,27 @@ fun GalleryNavHost(
           task = it,
           enableAnimation = enableModelListAnimation,
           onModelClicked = { model ->
-            navController.navigate("$ROUTE_MODEL/${it.id}/${model.name}")
+            if (modelManagerViewModel.isModelBlockedByHttpService(model)) {
+              httpInferenceBlockDialogVisible = true
+            } else {
+              navController.navigate("$ROUTE_MODEL/${it.id}/${model.name}")
+            }
           },
           navigateUp = {
             enableHomeScreenAnimation = false
             navController.navigateUp()
+          },
+        )
+      }
+      if (httpInferenceBlockDialogVisible) {
+        AlertDialog(
+          onDismissRequest = { httpInferenceBlockDialogVisible = false },
+          title = { Text(stringResource(R.string.http_inference_blocked_by_service_title)) },
+          text = { Text(stringResource(R.string.http_inference_blocked_by_service_body)) },
+          confirmButton = {
+            TextButton(onClick = { httpInferenceBlockDialogVisible = false }) {
+              Text(stringResource(R.string.close))
+            }
           },
         )
       }
@@ -398,8 +466,13 @@ fun GalleryNavHost(
           navController.navigateUp()
         },
         onModelSelected = { task, model ->
-          navController.navigate("$ROUTE_MODEL/${task.id}/${model.name}")
+          if (modelManagerViewModel.isModelBlockedByHttpService(model)) {
+            httpInferenceBlockDialogVisible = true
+          } else {
+            navController.navigate("$ROUTE_MODEL/${task.id}/${model.name}")
+          }
         },
+        onHttpInferenceSettings = { navController.navigate(ROUTE_HTTP_INFERENCE) },
         onBenchmarkClicked = { model ->
           firebaseAnalytics?.logEvent(
             GalleryEvent.CAPABILITY_SELECT.id,
@@ -407,6 +480,16 @@ fun GalleryNavHost(
           )
           navController.navigate("$ROUTE_BENCHMARK/${model.name}")
         },
+      )
+    }
+
+    composable(
+      route = ROUTE_HTTP_INFERENCE,
+      enterTransition = { slideEnter() },
+      exitTransition = { slideExit() },
+    ) {
+      ServiceManagerScreen(
+        navigateUp = { navController.navigateUp() },
       )
     }
 
@@ -432,26 +515,8 @@ fun GalleryNavHost(
     }
   }
 
-  // Handle incoming intents for deep links
-  val intent = androidx.activity.compose.LocalActivity.current?.intent
-  val data = intent?.data
-  if (data != null) {
-    intent.data = null
-    Log.d(TAG, "navigation link clicked: $data")
-    if (data.toString().startsWith("com.google.ai.edge.gallery://model/")) {
-      if (data.pathSegments.size >= 2) {
-        val taskId = data.pathSegments.get(data.pathSegments.size - 2)
-        val modelName = data.pathSegments.last()
-        modelManagerViewModel.getModelByName(name = modelName)?.let { model ->
-          navController.navigate("$ROUTE_MODEL/${taskId}/${model.name}")
-        }
-      } else {
-        Log.e(TAG, "Malformed deep link URI received: $data")
-      }
-    } else if (data.toString() == "com.google.ai.edge.gallery://global_model_manager") {
-      navController.navigate(ROUTE_MODEL_MANAGER)
-    }
-  }
+  // Handle incoming intents for deep links (cold start + recomposition)
+  activity?.let { consumeGalleryDeepLink(it, navController, modelManagerViewModel) }
 }
 
 @Composable

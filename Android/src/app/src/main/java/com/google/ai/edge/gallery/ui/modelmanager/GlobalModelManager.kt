@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -107,6 +108,7 @@ fun GlobalModelManager(
   navigateUp: () -> Unit,
   onModelSelected: (Task, Model) -> Unit,
   onBenchmarkClicked: (Model) -> Unit,
+  onHttpInferenceSettings: () -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   val uiState by viewModel.uiState.collectAsState()
@@ -127,6 +129,7 @@ fun GlobalModelManager(
   val context = LocalContext.current
   val snackbarHostState = remember { SnackbarHostState() }
   val modelItemExpandedStates = remember { mutableStateMapOf<String, Boolean>() }
+  var showHttpInferenceBlocked by remember { mutableStateOf(false) }
 
   val promoId = "gm4_banner"
   var showPromo by remember { mutableStateOf(false) }
@@ -174,19 +177,23 @@ fun GlobalModelManager(
   }
 
   val handleClickModel: (Model) -> Unit = { model ->
-    val tasks = viewModel.uiState.value.tasks
-    val tasksForModel = tasks.filter { task -> task.models.any { it.name == model.name } }
-    // If there is only one task for the model, navigate to the model directly.
-    if (tasksForModel.size == 1) {
-      onModelSelected(tasksForModel[0], model)
-    }
-    // If there are multiple tasks for the model, show a bottom sheet for the user to choose which
-    // task to use.
-    else if (tasksForModel.size > 1) {
-      taskCandidates.clear()
-      taskCandidates.addAll(tasksForModel)
-      modelForTaskCandidate = model
-      showTaskSelectorBottomSheet = true
+    if (viewModel.isModelBlockedByHttpService(model)) {
+      showHttpInferenceBlocked = true
+    } else {
+      val tasks = viewModel.uiState.value.tasks
+      val tasksForModel = tasks.filter { task -> task.models.any { it.name == model.name } }
+      // If there is only one task for the model, navigate to the model directly.
+      if (tasksForModel.size == 1) {
+        onModelSelected(tasksForModel[0], model)
+      }
+      // If there are multiple tasks for the model, show a bottom sheet for the user to choose which
+      // task to use.
+      else if (tasksForModel.size > 1) {
+        taskCandidates.clear()
+        taskCandidates.addAll(tasksForModel)
+        modelForTaskCandidate = model
+        showTaskSelectorBottomSheet = true
+      }
     }
   }
 
@@ -270,6 +277,17 @@ fun GlobalModelManager(
           }
         }
 
+        item(key = "http_inference_settings") {
+          TextButton(
+            onClick = onHttpInferenceSettings,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+          ) {
+            Text(
+              stringResource(R.string.drawer_http_inference_label),
+              style = MaterialTheme.typography.titleMedium,
+            )
+          }
+        }
         items(builtInModels) { model ->
           val expanded = modelItemExpandedStates.getOrDefault(model.name, true)
           ModelItem(
@@ -328,6 +346,19 @@ fun GlobalModelManager(
     }
   }
 
+  if (showHttpInferenceBlocked) {
+    AlertDialog(
+      onDismissRequest = { showHttpInferenceBlocked = false },
+      title = { Text(stringResource(R.string.http_inference_blocked_by_service_title)) },
+      text = { Text(stringResource(R.string.http_inference_blocked_by_service_body)) },
+      confirmButton = {
+        TextButton(onClick = { showHttpInferenceBlocked = false }) {
+          Text(stringResource(R.string.close))
+        }
+      },
+    )
+  }
+
   if (showTaskSelectorBottomSheet) {
     ModalBottomSheet(
       onDismissRequest = { showTaskSelectorBottomSheet = false },
@@ -352,7 +383,11 @@ fun GlobalModelManager(
                 .clickable {
                   val model = modelForTaskCandidate
                   if (model != null) {
-                    onModelSelected(task, model)
+                    if (viewModel.isModelBlockedByHttpService(model)) {
+                      showHttpInferenceBlocked = true
+                    } else {
+                      onModelSelected(task, model)
+                    }
                   }
                   scope.launch {
                     sheetState.hide()

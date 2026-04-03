@@ -435,6 +435,28 @@ fun ServiceManagerScreen(
       }
 
       item {
+        Column(modifier = Modifier.fillMaxWidth()) {
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Text(stringResource(R.string.http_inference_enable_thinking))
+            Switch(
+              checked = config.enableThinking,
+              onCheckedChange = viewModel::setEnableThinking,
+            )
+          }
+          Text(
+            stringResource(R.string.http_inference_enable_thinking_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+          )
+        }
+      }
+
+      item {
         Text(stringResource(R.string.http_inference_auth_token), style = MaterialTheme.typography.labelLarge)
         OutlinedTextField(
           value = authTokenText,

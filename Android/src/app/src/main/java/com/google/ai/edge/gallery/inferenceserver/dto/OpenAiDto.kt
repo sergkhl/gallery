@@ -13,6 +13,7 @@ data class ChatCompletionRequest(
   val stream: Boolean = false,
   @SerialName("max_tokens") val maxTokens: Int? = null,
   val temperature: Double? = null,
+  @SerialName("enable_thinking") val enableThinking: Boolean? = null,
 )
 
 @Serializable
@@ -58,7 +59,11 @@ data class ChatCompletionChoice(
 )
 
 @Serializable
-data class ChatCompletionMessage(val role: String = "assistant", val content: String)
+data class ChatCompletionMessage(
+  val role: String = "assistant",
+  val content: String,
+  @SerialName("reasoning_content") val reasoningContent: String? = null,
+)
 
 @Serializable
 data class ChatCompletionChunk(
@@ -76,4 +81,7 @@ data class ChatCompletionChunkChoice(
 )
 
 @Serializable
-data class ChatCompletionDelta(val content: String? = null)
+data class ChatCompletionDelta(
+  val content: String? = null,
+  @SerialName("reasoning_content") val reasoningContent: String? = null,
+)

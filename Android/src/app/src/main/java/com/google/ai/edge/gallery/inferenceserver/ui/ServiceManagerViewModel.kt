@@ -126,6 +126,12 @@ constructor(
     _config.value = c
   }
 
+  fun setEnableThinking(enabled: Boolean) {
+    val c = _config.value.toBuilder().setEnableThinking(enabled).build()
+    dataStoreRepository.saveServiceConfig(c)
+    _config.value = c
+  }
+
   fun addWhitelistEntry(ip: String, label: String) {
     val trimmed = ip.trim()
     if (trimmed.isEmpty()) return

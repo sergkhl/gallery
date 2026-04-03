@@ -25,6 +25,8 @@ message ServiceConfig {
   bool auto_start_on_app_open = 7;
   // Unload LLM from memory after this many minutes with no activity; 0 = never unload.
   int32 idle_unload_minutes = 8;
+  // Server-level default for Gemma 4 thinking; per-request enable_thinking overrides.
+  bool enable_thinking = 9;
 }
 
 message ConnectionLogEntry {

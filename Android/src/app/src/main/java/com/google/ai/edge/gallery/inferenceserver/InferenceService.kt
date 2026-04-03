@@ -246,6 +246,7 @@ class InferenceService : Service() {
           ensureLlmLoaded = { ensureLlmLoadedUnderMutex() },
           onInferenceActivity = { touchInferenceActivity() },
           llmDebugLog = httpInferenceLlmDebugLog,
+          enableThinkingDefault = config.enableThinking,
         )
       }
     embedded.start(wait = false)

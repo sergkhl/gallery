@@ -449,5 +449,7 @@
   <string name="http_inference_access_urls_hint" translatable="false">OpenAI-compatible API (same Wi‑Fi). Use /v1/models and /v1/chat/completions. Vision: last user message may include image_url parts with data:image/…;base64,… URLs only.</string>
   <string name="http_inference_no_lan_ip" translatable="false">No LAN IPv4 found. Use this device’s IP from Wi‑Fi settings with port %d.</string>
   <string name="http_inference_copy_url" translatable="false">Copy URL</string>
+  <string name="http_inference_enable_thinking" translatable="false">Enable thinking</string>
+  <string name="http_inference_enable_thinking_hint" translatable="false">Server-level default. Supported models (e.g. Gemma 4) will produce reasoning_content in responses. Per-request enable_thinking field overrides this.</string>
 
 </resources>

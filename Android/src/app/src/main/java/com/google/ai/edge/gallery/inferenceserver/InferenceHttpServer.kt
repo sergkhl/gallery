@@ -66,6 +66,8 @@ private const val INFERENCE_IDLE_WAIT_MS = 5000L
 private sealed interface HttpInferenceStreamEvent {
   data class Token(val text: String) : HttpInferenceStreamEvent
 
+  data class ThinkingToken(val text: String) : HttpInferenceStreamEvent
+
   data object End : HttpInferenceStreamEvent
 
   data class Error(val message: String) : HttpInferenceStreamEvent
@@ -81,6 +83,7 @@ fun Application.configureInferenceOpenAiRoutes(
   ensureLlmLoaded: suspend () -> Model,
   onInferenceActivity: () -> Unit,
   llmDebugLog: HttpInferenceLlmDebugLog,
+  enableThinkingDefault: Boolean = false,
 ) {
   install(ContentNegotiation) { json(openAiJson) }
 
@@ -201,6 +204,10 @@ fun Application.configureInferenceOpenAiRoutes(
           return@post
         }
         llmDebugLog.markCompletionStart()
+        val enableThinking =
+          (req.enableThinking ?: enableThinkingDefault) && boundModel.llmSupportThinking
+        val extraContext =
+          if (enableThinking) mapOf("enable_thinking" to "true") else null
         if (req.stream) {
           val streamId = "chatcmpl-${UUID.randomUUID()}"
           val idle = CompletableDeferred<Unit>()
@@ -215,21 +222,23 @@ fun Application.configureInferenceOpenAiRoutes(
               modelName = boundModel.name,
               inferenceIdle = idle,
               llmDebugLog = llmDebugLog,
+              extraContext = extraContext,
             ) { chunk ->
               write(chunk)
               flush()
             }
           }
         } else {
-          val (text, idle) =
+          val blockingResult =
             runBlockingChat(
               serviceScope = serviceScope,
               model = boundModel,
               prompt = prompt,
               images = images,
               llmDebugLog = llmDebugLog,
+              extraContext = extraContext,
             )
-          inferenceIdle = idle
+          inferenceIdle = blockingResult.inferenceIdle
           call.respond(
             ChatCompletionResponse(
               id = "chatcmpl-${UUID.randomUUID()}",
@@ -237,7 +246,11 @@ fun Application.configureInferenceOpenAiRoutes(
               choices =
                 listOf(
                   ChatCompletionChoice(
-                    message = ChatCompletionMessage(content = text)
+                    message =
+                      ChatCompletionMessage(
+                        content = blockingResult.content,
+                        reasoningContent = blockingResult.reasoningContent.ifEmpty { null },
+                      )
                   )
                 ),
             )
@@ -267,6 +280,12 @@ fun Application.configureInferenceOpenAiRoutes(
   }
 }
 
+private sealed interface StreamChunk {
+  data class Content(val text: String) : StreamChunk
+  data class Reasoning(val text: String) : StreamChunk
+  data class StreamError(val message: String) : StreamChunk
+}
+
 private suspend fun writeStreamingChat(
   serviceScope: CoroutineScope,
   model: Model,
@@ -276,6 +295,7 @@ private suspend fun writeStreamingChat(
   modelName: String,
   inferenceIdle: CompletableDeferred<Unit>,
   llmDebugLog: HttpInferenceLlmDebugLog,
+  extraContext: Map<String, String>? = null,
   emit: suspend (String) -> Unit,
 ) {
   fun markInferenceIdle() {
@@ -284,7 +304,7 @@ private suspend fun writeStreamingChat(
     }
   }
 
-  val out = Channel<String>(Channel.UNLIMITED)
+  val out = Channel<StreamChunk>(Channel.UNLIMITED)
   val mailbox = Channel<HttpInferenceStreamEvent>(Channel.UNLIMITED)
   serviceScope.launch {
     try {
@@ -293,12 +313,17 @@ private suspend fun writeStreamingChat(
           is HttpInferenceStreamEvent.Token -> {
             if (event.text.isNotEmpty()) {
               llmDebugLog.appendDelta(event.text)
-              out.send(event.text)
+              out.send(StreamChunk.Content(event.text))
+            }
+          }
+          is HttpInferenceStreamEvent.ThinkingToken -> {
+            if (event.text.isNotEmpty()) {
+              out.send(StreamChunk.Reasoning(event.text))
             }
           }
           is HttpInferenceStreamEvent.Error -> {
             llmDebugLog.appendError(event.message)
-            out.send("__ERROR__:${event.message}")
+            out.send(StreamChunk.StreamError(event.message))
             return@launch
           }
           is HttpInferenceStreamEvent.End -> return@launch
@@ -321,12 +346,15 @@ private suspend fun writeStreamingChat(
   LlmChatModelHelper.runInference(
     model = model,
     input = prompt,
-    resultListener = { partial, done, _ ->
+    resultListener = { partial, done, partialThinking ->
       if (partial.startsWith("<ctrl")) {
         if (done) {
           mailbox.trySend(HttpInferenceStreamEvent.End)
         }
         return@runInference
+      }
+      if (!partialThinking.isNullOrEmpty()) {
+        mailbox.trySend(HttpInferenceStreamEvent.ThinkingToken(partialThinking))
       }
       if (partial.isNotEmpty()) {
         mailbox.trySend(HttpInferenceStreamEvent.Token(partial))
@@ -341,29 +369,48 @@ private suspend fun writeStreamingChat(
     },
     images = images,
     coroutineScope = serviceScope,
+    extraContext = extraContext,
   )
-  for (delta in out) {
-    if (delta.startsWith("__ERROR__:")) {
-      val err = delta.removePrefix("__ERROR__:")
-      emit(
-        "data: {\"error\":{\"message\":\"${err.replace("\"", "\\\"")}\"}}\n\n"
-      )
-      emit("data: [DONE]\n\n")
-      return
+  for (chunk in out) {
+    when (chunk) {
+      is StreamChunk.StreamError -> {
+        emit(
+          "data: {\"error\":{\"message\":\"${chunk.message.replace("\"", "\\\"")}\"}}\n\n"
+        )
+        emit("data: [DONE]\n\n")
+        return
+      }
+      is StreamChunk.Reasoning -> {
+        val sse =
+          ChatCompletionChunk(
+            id = streamId,
+            model = modelName,
+            choices =
+              listOf(
+                ChatCompletionChunkChoice(
+                  delta = ChatCompletionDelta(reasoningContent = chunk.text),
+                  finishReason = null,
+                )
+              ),
+          )
+        emit("data: ${openAiJson.encodeToString(ChatCompletionChunk.serializer(), sse)}\n\n")
+      }
+      is StreamChunk.Content -> {
+        val sse =
+          ChatCompletionChunk(
+            id = streamId,
+            model = modelName,
+            choices =
+              listOf(
+                ChatCompletionChunkChoice(
+                  delta = ChatCompletionDelta(content = chunk.text),
+                  finishReason = null,
+                )
+              ),
+          )
+        emit("data: ${openAiJson.encodeToString(ChatCompletionChunk.serializer(), sse)}\n\n")
+      }
     }
-    val chunk =
-      ChatCompletionChunk(
-        id = streamId,
-        model = modelName,
-        choices =
-          listOf(
-            ChatCompletionChunkChoice(
-              delta = ChatCompletionDelta(content = delta),
-              finishReason = null,
-            )
-          ),
-      )
-    emit("data: ${openAiJson.encodeToString(ChatCompletionChunk.serializer(), chunk)}\n\n")
   }
   val finalChunk =
     ChatCompletionChunk(
@@ -381,13 +428,20 @@ private suspend fun writeStreamingChat(
   emit("data: [DONE]\n\n")
 }
 
+private data class BlockingChatResult(
+  val content: String,
+  val reasoningContent: String,
+  val inferenceIdle: CompletableDeferred<Unit>,
+)
+
 private suspend fun runBlockingChat(
   serviceScope: CoroutineScope,
   model: Model,
   prompt: String,
   images: List<Bitmap>,
   llmDebugLog: HttpInferenceLlmDebugLog,
-): Pair<String, CompletableDeferred<Unit>> {
+  extraContext: Map<String, String>? = null,
+): BlockingChatResult {
   val inferenceIdle = CompletableDeferred<Unit>()
   fun markInferenceIdle() {
     if (!inferenceIdle.isCompleted) {
@@ -395,8 +449,9 @@ private suspend fun runBlockingChat(
     }
   }
 
-  val done = CompletableDeferred<String>()
+  val done = CompletableDeferred<Pair<String, String>>()
   val sb = StringBuilder()
+  val thinkingSb = StringBuilder()
   LlmChatModelHelper.resetConversation(
     model = model,
     supportImage = model.llmSupportImage,
@@ -408,17 +463,20 @@ private suspend fun runBlockingChat(
   LlmChatModelHelper.runInference(
     model = model,
     input = prompt,
-    resultListener = { partial, finished, _ ->
+    resultListener = { partial, finished, partialThinking ->
       if (partial.startsWith("<ctrl")) {
         if (finished) {
           serviceScope.launch {
             if (!done.isCompleted) {
-              done.complete(sb.toString())
+              done.complete(sb.toString() to thinkingSb.toString())
             }
             markInferenceIdle()
           }
         }
         return@runInference
+      }
+      if (!partialThinking.isNullOrEmpty()) {
+        thinkingSb.append(partialThinking)
       }
       if (partial.isNotEmpty()) {
         llmDebugLog.appendDelta(partial)
@@ -427,7 +485,7 @@ private suspend fun runBlockingChat(
       if (finished) {
         serviceScope.launch {
           if (!done.isCompleted) {
-            done.complete(sb.toString())
+            done.complete(sb.toString() to thinkingSb.toString())
           }
           markInferenceIdle()
         }
@@ -438,15 +496,17 @@ private suspend fun runBlockingChat(
       serviceScope.launch {
         llmDebugLog.appendError(message)
         if (!done.isCompleted) {
-          done.complete("Error: $message")
+          done.complete("Error: $message" to thinkingSb.toString())
         }
         markInferenceIdle()
       }
     },
     images = images,
     coroutineScope = serviceScope,
+    extraContext = extraContext,
   )
-  return done.await() to inferenceIdle
+  val (content, reasoning) = done.await()
+  return BlockingChatResult(content, reasoning, inferenceIdle)
 }
 
 private suspend fun passesSecurity(clientIp: String, securityGateway: SecurityGateway): Boolean {
